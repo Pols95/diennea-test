@@ -9,11 +9,14 @@ public class Main {
     private static String dbmsUrl;
     private static String dbmsUser;
     private static String userPw;
+    
+    private static int noTransactions;
+    private static int noStatementsPerTransaction;
 
     public static void main(String[] args) throws ClassNotFoundException {
 
         loadConfig();        
-        new PostgreSQLManager(dbmsUrl, dbmsUser, userPw).executesBenchmarks();
+        new PostgreSQLManager(dbmsUrl, dbmsUser, userPw).executesBenchmarks(noTransactions, noStatementsPerTransaction);
         
     }
 
@@ -23,10 +26,9 @@ public class Main {
         try (InputStream input = Main.class.getResourceAsStream("/configuration.properties")) {
 
             System.out.println("Configuration loading...");
-            // load a properties file
             prop.load(input);		    
 
-            // get the property value and print it out
+            // Dbms config
             dbmsUrl = prop.getProperty("dbms_url");
             System.out.println("dbms_url: " + dbmsUrl);
 
@@ -34,7 +36,15 @@ public class Main {
             System.out.println("dbms_user: " + dbmsUser);
 
             userPw = prop.getProperty("user_pw");    
-            System.out.println("user_pw: " + userPw + "\n");         
+            System.out.println("user_pw: " + userPw + "\n");
+            
+            
+            // Benchmarks config
+            noTransactions = Integer.parseInt(prop.getProperty("no_transactions"));
+            System.out.println("no_transactions: " + noTransactions);
+
+            noStatementsPerTransaction = Integer.parseInt(prop.getProperty("no_transactions"));    
+            System.out.println("no_transactions: " + noStatementsPerTransaction + "\n");
 
 
         } catch (IOException ex) {
