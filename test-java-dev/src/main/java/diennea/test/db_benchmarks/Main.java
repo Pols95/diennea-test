@@ -25,26 +25,26 @@ public class Main {
 
         try (InputStream input = Main.class.getResourceAsStream("/configuration.properties")) {
 
-            System.out.println("Configuration loading...");
+            System.out.println("Configuration loaded:");
             prop.load(input);		    
 
             // Dbms config
             dbmsUrl = prop.getProperty("dbms_url");
-            System.out.println("dbms_url: " + dbmsUrl);
+            System.out.println("- dbms_url: " + dbmsUrl);
 
             dbmsUser = prop.getProperty("dbms_user");
-            System.out.println("dbms_user: " + dbmsUser);
+            System.out.println("- dbms_user: " + dbmsUser);
 
             userPw = prop.getProperty("user_pw");    
-            System.out.println("user_pw: " + userPw + "\n");
+            System.out.println("- user_pw: " + userPw);
             
             
             // Benchmarks config
             noTransactions = Integer.parseInt(prop.getProperty("no_transactions"));
-            System.out.println("no_transactions: " + noTransactions);
+            System.out.println("- no_transactions: " + noTransactions);
 
-            noStatementsPerTransaction = Integer.parseInt(prop.getProperty("no_transactions"));    
-            System.out.println("no_transactions: " + noStatementsPerTransaction + "\n");
+            noStatementsPerTransaction = Integer.parseInt(prop.getProperty("no_statements_per_transaction"));    
+            System.out.println("- no_statements_per_transaction: " + noStatementsPerTransaction + "\n");
 
 
         } catch (IOException ex) {

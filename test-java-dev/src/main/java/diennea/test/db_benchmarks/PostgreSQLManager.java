@@ -4,19 +4,22 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.Connection;
+import java.sql.Date;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Random;
 
 /**
- * Simple class for PostgreSQL dbms instance (server) management.
+ * Simple class for a PostgreSQL server management.
  * 
  * @author paolo
  *
  */
 public class PostgreSQLManager {
     
-    private static String BENCHMARKS_DB_NAME = "diennea_test_db";
+    private static final String BENCHMARKS_DB_NAME = "diennea_benchmarks_test_db";
 
     private Connection conn = null;
     private String connectedDB = null;
@@ -27,9 +30,9 @@ public class PostgreSQLManager {
 
     /**
      * 
-     * @param dbmsUrl: url of the PostgreSQL dbms instance (server) to manage (i.e. host[:port])
-     * @param dbmsUser: user (name) for the authentication
-     * @param userPw: password for the authentication
+     * @param dbmsUrl: url of the PostgreSQL server to manage (i.e. host[:port]).
+     * @param dbmsUser: user (name) for server authentication.
+     * @param userPw: password for server authentication.
      * 
      * @throws ClassNotFoundException: raised whether the PostgreSQL Driver class cannot be found.
      */
@@ -42,14 +45,14 @@ public class PostgreSQLManager {
 
     /**
      * Executes a benchmark of noStatementsPerTransaction statements per noTransactions transactions according to 
-     * "insert" and "select" operation on a temporary database created on the PostgreSQL instance (server) managed.
+     * "insert" and "select" operations on a temporary database created on the PostgreSQL server managed.
      * 
-     * @param noTransactions: number of transactions to execute during benchmark.
-     * @param noStatementsPerTransaction: number of statements each transaction has to execute during benchmark.
+     * @param noTransactions: number of transactions to execute during benchmarks.
+     * @param noStatementsPerTransaction: number of statements each transaction has to execute during benchmarks.
      */
     public void executesBenchmarks(int noTransactions, int noStatementsPerTransaction) {
         try {            
-            createBenchmarksDB();
+            createBenchmarksDB();            
             executesInsertBenchmarks(noTransactions, noStatementsPerTransaction);
             executesSelectBenchmarks(noTransactions, noStatementsPerTransaction);            
         } catch (SQLException e) {            
@@ -57,11 +60,11 @@ public class PostgreSQLManager {
         } catch (IOException e) { 
             e.printStackTrace();
         } finally {
-//            try {
-//                dropDB(BENCHMARKS_DB_NAME);
-//            } catch (SQLException e) {
-//                e.printStackTrace();
-//            }
+            try {
+                dropDB(BENCHMARKS_DB_NAME);
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
         }
     }
     
@@ -84,20 +87,115 @@ public class PostgreSQLManager {
     }
     
     private void executesInsertBenchmarks(int noTransactions, int noStatementsPerTransaction) {
-        // TODO Auto-generated method stub
-        
+        float avg = 0, max = -1, min = -1;
+        try {
+            conn.setAutoCommit(false);            
+            
+            try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO Student VALUES (?, ?, ?, ?)")) {
+                for (int i = 0; i < noTransactions; i++) {
+                    // Single transaction
+                    for (int j = 0; j < noStatementsPerTransaction; j++) {
+                        final int userIndex = i * noTransactions + j;
+                        stmt.setInt(1, userIndex);
+                        stmt.setString(2, "student_" + userIndex + "_firstname");
+                        stmt.setString(3, "student_" + userIndex + "_lastname");
+                        stmt.setDate(4, new Date(System.currentTimeMillis()));
+                        
+                        long start = System.nanoTime();
+                        stmt.executeUpdate();
+                        long end = System.nanoTime();
+                        float amount = (end - start) / 1000F;
+                        //System.out.println("Query returned successfully in " + amount + " μs.");
+                        
+                        avg += amount;
+                        max = amount > max ? amount : max;
+                        min = amount < min || min < 0 ? amount : min;
+                                             
+                    }
+                    conn.commit();
+                }
+                
+                avg /= noTransactions * noStatementsPerTransaction;
+                System.out.println("\n# Benchmarks with " + noTransactions + " transactions and " + 
+                                    noStatementsPerTransaction * noTransactions + " total INSERT statements:");
+                System.out.println("- AVG time: " + avg + " μs");
+                System.out.println("- Worst time: " + max + " μs");
+                System.out.println("- Best time: " + min + " μs");
+                
+            } catch (SQLException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        } catch (SQLException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } finally {
+            try {
+                conn.setAutoCommit(true);
+            } catch (SQLException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
     }
 
     private void executesSelectBenchmarks(int noTransactions, int noStatementsPerTransaction) {
-        // TODO Auto-generated method stub
+        float avg = 0, max = -1, min = -1;
+        try {
+            conn.setAutoCommit(false);            
+            
+            Random rng = new Random();
+            try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM Student WHERE ID = ?")) {
+                for (int i = 0; i < noTransactions; i++) {
+                    // Single transaction
+                    for (int j = 0; j < noStatementsPerTransaction; j++) {
+                        final int userIndex = rng.nextInt(noStatementsPerTransaction * noTransactions);
+                        stmt.setInt(1, userIndex);                      
+                        
+                        long start = System.nanoTime();
+                        stmt.executeQuery();
+                        long end = System.nanoTime();
+                        float amount = (end - start) / 1000F;
+                        //System.out.println("Query returned successfully in " + amount + " μs.");
+                        
+                        avg += amount;
+                        max = amount > max ? amount : max;
+                        min = amount < min || min < 0 ? amount : min;
+                                             
+                    }
+                    conn.commit();
+                }
+                
+                avg /= noTransactions * noStatementsPerTransaction;
+                System.out.println("\n# Benchmarks with " + noTransactions + " transactions and " + 
+                                    noStatementsPerTransaction * noTransactions + " total SELECT statements:");
+                System.out.println("- AVG time: " + avg + " μs");
+                System.out.println("- Worst time: " + max + " μs");
+                System.out.println("- Best time: " + min + " μs");
+                
+            } catch (SQLException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        } catch (SQLException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } finally {
+            try {
+                conn.setAutoCommit(true);
+            } catch (SQLException e) {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
+        }
         
     }
 
     
     /**
-     * Creates a DB with the given name.
+     * Creates a DB with the given name on the PostgreSQL server managed.
      * @param dbName: name of the database to create.
-     * @throws SQLException: whether PostgreSQL instance (server) access or database creation fail.
+     * @throws SQLException: whether PostgreSQL server access or database creation fail.
      */
     public void createDB(String dbName) throws SQLException { 
         try (Connection conn = DriverManager.getConnection("jdbc:postgresql://" + dbmsUrl + "/", dbmsUser, userPw)) {               
@@ -114,9 +212,9 @@ public class PostgreSQLManager {
     }    
 
     /**
-     * Drops the DB with the given name.
+     * Drops the DB with the given name on the PostgreSQL server managed.
      * @param dbName: name of the database to drop.
-     * @throws SQLException: whether PostgreSQL instance (server) access or database dropping fail.
+     * @throws SQLException: whether PostgreSQL server access or database dropping fail.
      */
     public void dropDB(String dbName) throws SQLException {       
         try (Connection conn = DriverManager.getConnection("jdbc:postgresql://" + dbmsUrl + "/", dbmsUser, userPw)) {            
@@ -124,9 +222,9 @@ public class PostgreSQLManager {
             
             try (Statement stmt = conn.createStatement()) {
                 stmt.executeUpdate("DROP DATABASE " + dbName);
-                System.out.println("Database " + dbName + " dropped.");
+                System.out.println("\nDatabase " + dbName + " dropped.");
             } catch (SQLException e) {
-                System.err.println("Database " + dbName + " dropping failed.");
+                System.err.println("\nDatabase " + dbName + " dropping failed.");
                 throw e;
             }                     
         } catch (SQLException e) {            
@@ -135,11 +233,11 @@ public class PostgreSQLManager {
     }
     
     /**
-     * Connects to DB with the given name.
+     * Connects to the DB with the given name on the PostgreSQL server managed.
      * One connection to one single DB is managed at time (existing connections close).
-     * @param dbName:name of the database to connect to.
+     * @param dbName: name of the database to connect to.
      * @throws SQLException: whether new DB connection opening (to given DB name) or existing DB
-     *                       connection closing (on managed PostgreSQL instance-server) fail.
+     *                       connection closing (on managed PostgreSQL server) fail.
      */
     public void connectToDB(String dbName) throws SQLException {                        
         try {
@@ -155,7 +253,7 @@ public class PostgreSQLManager {
     
     /**
      * Disconnects from current connected DB.
-     * @throws SQLException: whether existing DB connection closing (on managed PostgreSQL instance-server) fail.
+     * @throws SQLException: whether existing DB connection closing (on managed PostgreSQL server) fail.
      */
     public void disconnectFromDB() throws SQLException {
         if (conn == null) return;
@@ -167,7 +265,7 @@ public class PostgreSQLManager {
         } finally {
             conn = null;
             connectedDB = null;
-        }        
+        }
     }
     
     /**
