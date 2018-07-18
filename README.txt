@@ -20,8 +20,8 @@ Following types of benchmark are executed:
  - INSERT benchmark: consists of no_transactions* transactions with no_statements_per_transaction* INSERT
  	prepared-statements.
  	Whenever an INSERT statement fails the entire transaction is discarded and the
-	next transaction is executed (successfully executed INSERT statements of a discarded transaction are
-	still benchmarked).
+	next transaction is executed (successfully executed INSERT statements of a discarded transaction
+	are still benchmarked).
  
  - SELECT benckmark: consists of no_select_statements* SELECT prepared-statements on the table PK.
  	Each failing SELECT statement is not benchmarked.
