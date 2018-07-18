@@ -6,29 +6,31 @@ import java.util.Properties;
 
 public class Main {
 
+    // PostgreSQL server access config
     private static String dbmsUrl;
     private static String dbmsUser;
     private static String userPw;
     
+    // Benchmarks config
     private static int noTransactions;
     private static int noStatementsPerTransaction;
+    private static int noSelectStatements;
 
+    
     public static void main(String[] args) throws ClassNotFoundException {
-
         loadConfig();        
-        new PostgreSQLManager(dbmsUrl, dbmsUser, userPw).executesBenchmarks(noTransactions, noStatementsPerTransaction);
-        
+        new PostgreSQLManager(dbmsUrl, dbmsUser, userPw).executesBenchmarks(noTransactions, noStatementsPerTransaction, noSelectStatements);        
     }
 
     private static void loadConfig() {
-        Properties prop = new Properties();		
+        final Properties prop = new Properties();		
 
         try (InputStream input = Main.class.getResourceAsStream("/configuration.properties")) {
+            
+            prop.load(input);
+            System.out.println("Configuration loaded:");           
 
-            System.out.println("Configuration loaded:");
-            prop.load(input);		    
-
-            // Dbms config
+            // PostgreSQL server access config
             dbmsUrl = prop.getProperty("dbms_url");
             System.out.println("- dbms_url: " + dbmsUrl);
 
@@ -44,9 +46,11 @@ public class Main {
             System.out.println("- no_transactions: " + noTransactions);
 
             noStatementsPerTransaction = Integer.parseInt(prop.getProperty("no_statements_per_transaction"));    
-            System.out.println("- no_statements_per_transaction: " + noStatementsPerTransaction + "\n");
-
-
+            System.out.println("- no_statements_per_transaction: " + noStatementsPerTransaction);
+            
+            noSelectStatements = Integer.parseInt(prop.getProperty("no_select_statements"));    
+            System.out.println("- no_select_statements: " + noSelectStatements + "\n");
+            
         } catch (IOException ex) {
             ex.printStackTrace();
         }

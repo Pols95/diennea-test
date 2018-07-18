@@ -1,12 +1,14 @@
 package diennea.test.db_benchmarks;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Random;
@@ -18,8 +20,9 @@ import java.util.Random;
  *
  */
 public class PostgreSQLManager {
-    
+
     private static final String BENCHMARKS_DB_NAME = "diennea_benchmarks_test_db";
+    private static final boolean DROP_BENCHMARKS_DB_AFTER_TEST = true;
 
     private Connection conn = null;
     private String connectedDB = null;
@@ -50,148 +53,200 @@ public class PostgreSQLManager {
      * @param noTransactions: number of transactions to execute during benchmarks.
      * @param noStatementsPerTransaction: number of statements each transaction has to execute during benchmarks.
      */
-    public void executesBenchmarks(int noTransactions, int noStatementsPerTransaction) {
-        try {            
+    public void executesBenchmarks(int noTransactions, int noStatementsPerTransaction, int noSelectStatements) {
+        System.out.println("Benchmarks initializing...");
+        try {
             createBenchmarksDB();            
             executesInsertBenchmarks(noTransactions, noStatementsPerTransaction);
-            executesSelectBenchmarks(noTransactions, noStatementsPerTransaction);            
-        } catch (SQLException e) {            
-            e.printStackTrace();
-        } catch (IOException e) { 
+            executesSelectBenchmarks(noSelectStatements);         
+        } catch (SQLException | IOException | URISyntaxException e) {            
             e.printStackTrace();
         } finally {
+            if (!DROP_BENCHMARKS_DB_AFTER_TEST) return;
             try {
                 dropDB(BENCHMARKS_DB_NAME);
             } catch (SQLException e) {
                 e.printStackTrace();
             }
         }
-    }
-    
-    private void createBenchmarksDB() throws SQLException, IOException {        
-        try {
+    }   
+
+    private void createBenchmarksDB() throws SQLException, IOException, URISyntaxException {        
+        try {            
+
             // DBMS connection and benchmarks DB creation.
             createDB(BENCHMARKS_DB_NAME);        
-            
+
             // Benchmarks DB connection and table creation.
             connectToDB(BENCHMARKS_DB_NAME);
-            
+
             String tableDDL = String.join("",
-                    Files.readAllLines(Paths.get(Main.class.getResource("/benchmarks_db_table.sql").getPath())));             
+                    Files.readAllLines(Paths.get(Main.class.getResource("/benchmarks_db_table.sql").toURI())));             
 
             createTable(tableDDL);            
-        } catch (SQLException | IOException e) {
+        } catch (SQLException | IOException | URISyntaxException e) {
             System.err.println("Benckmarks DB table creation failed.");
             throw e;
-        }        
+        }
     }
-    
-    private void executesInsertBenchmarks(int noTransactions, int noStatementsPerTransaction) {
+
+    private void executesInsertBenchmarks(int noTransactions, int noStatementsPerTransaction) throws SQLException {
         float avg = 0, max = -1, min = -1;
-        try {
-            conn.setAutoCommit(false);            
-            
-            try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO Student VALUES (?, ?, ?, ?)")) {
-                for (int i = 0; i < noTransactions; i++) {
-                    // Single transaction
+        int statementsMade = 0;
+        int transactionsFailed = 0;        
+
+        try (PreparedStatement stmt = conn.prepareStatement("INSERT INTO Student VALUES (?, ?, ?, ?)")) {
+            conn.setAutoCommit(false);
+            for (int i = 0; i < noTransactions; i++) {
+                // Single transaction
+                try {
                     for (int j = 0; j < noStatementsPerTransaction; j++) {
-                        final int userIndex = i * noTransactions + j;
+                        final int userIndex = i * noStatementsPerTransaction + j;
                         stmt.setInt(1, userIndex);
                         stmt.setString(2, "student_" + userIndex + "_firstname");
                         stmt.setString(3, "student_" + userIndex + "_lastname");
                         stmt.setDate(4, new Date(System.currentTimeMillis()));
-                        
+
                         long start = System.nanoTime();
                         stmt.executeUpdate();
                         long end = System.nanoTime();
                         float amount = (end - start) / 1000F;
-                        //System.out.println("Query returned successfully in " + amount + " μs.");
-                        
+                        //                        System.out.println("Query returned successfully in " + amount + " μs.");
+
+                        //                        if (i == 3) {
+                        //                            throw new SQLException();
+                        //                        }
+
+                        statementsMade++;
                         avg += amount;
                         max = amount > max ? amount : max;
                         min = amount < min || min < 0 ? amount : min;
-                                             
                     }
                     conn.commit();
-                }
-                
-                avg /= noTransactions * noStatementsPerTransaction;
-                System.out.println("\n# Benchmarks with " + noTransactions + " transactions and " + 
-                                    noStatementsPerTransaction * noTransactions + " total INSERT statements:");
-                System.out.println("- AVG time: " + avg + " μs");
-                System.out.println("- Worst time: " + max + " μs");
-                System.out.println("- Best time: " + min + " μs");
-                
-            } catch (SQLException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                } catch (SQLException e) {
+                    conn.rollback();
+                    transactionsFailed++;
+                }                
             }
+
+            avg /= statementsMade;
+            System.out.println("\n# Benchmarks with " + noTransactions + " transactions and " + 
+                    noStatementsPerTransaction + " INSERT statements per transaction:");
+            System.out.println("- transactions failed: " + transactionsFailed + "/" + noTransactions);
+            System.out.println("- total statements benchmarked (committed or not): " + statementsMade + "/" + noTransactions*noStatementsPerTransaction);
+            System.out.println("- AVG time: " + avg + " μs");
+            System.out.println("- Worst time: " + max + " μs");
+            System.out.println("- Best time: " + min + " μs");
+
         } catch (SQLException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
+            System.err.println("Benchmarking on INSERT statements failed.");
+            throw e;
         } finally {
-            try {
-                conn.setAutoCommit(true);
-            } catch (SQLException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
+            conn.setAutoCommit(true);            
         }
     }
 
-    private void executesSelectBenchmarks(int noTransactions, int noStatementsPerTransaction) {
+    // Version with SELECT transactions
+    private void executesSelectBenchmarks(int noTransactions, int noStatementsPerTransaction) throws SQLException {
         float avg = 0, max = -1, min = -1;
-        try {
-            conn.setAutoCommit(false);            
-            
-            Random rng = new Random();
-            try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM Student WHERE ID = ?")) {
-                for (int i = 0; i < noTransactions; i++) {
-                    // Single transaction
+        int statementsMade = 0;
+        int transactionsFailed = 0;  
+        final Random rng = new Random();
+
+        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM Student WHERE ID = ?")) {
+            conn.setAutoCommit(false);
+            for (int i = 0; i < noTransactions; i++) {
+                // Single transaction
+                try {
                     for (int j = 0; j < noStatementsPerTransaction; j++) {
                         final int userIndex = rng.nextInt(noStatementsPerTransaction * noTransactions);
                         stmt.setInt(1, userIndex);                      
-                        
+
                         long start = System.nanoTime();
                         stmt.executeQuery();
                         long end = System.nanoTime();
-                        float amount = (end - start) / 1000F;
-                        //System.out.println("Query returned successfully in " + amount + " μs.");
-                        
+                        float amount = (end - start) / 1000F;                       
+
+                        statementsMade++;
                         avg += amount;
                         max = amount > max ? amount : max;
                         min = amount < min || min < 0 ? amount : min;
-                                             
                     }
                     conn.commit();
-                }
-                
-                avg /= noTransactions * noStatementsPerTransaction;
-                System.out.println("\n# Benchmarks with " + noTransactions + " transactions and " + 
-                                    noStatementsPerTransaction * noTransactions + " total SELECT statements:");
-                System.out.println("- AVG time: " + avg + " μs");
-                System.out.println("- Worst time: " + max + " μs");
-                System.out.println("- Best time: " + min + " μs");
-                
-            } catch (SQLException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                } catch (SQLException e) {
+                    conn.rollback();
+                    transactionsFailed++;
+                }                
             }
+
+            avg /= statementsMade;
+            System.out.println("\n# Benchmarks with " + noTransactions + " transactions and " + 
+                    noStatementsPerTransaction + " INSERT statements per transaction:");
+            System.out.println("- transactions failed: " + transactionsFailed + "/" + noTransactions);
+            System.out.println("- total statements benchmarked (committed or not): " + statementsMade + "/" + noTransactions*noStatementsPerTransaction);
+            System.out.println("- AVG time: " + avg + " μs");
+            System.out.println("- Worst time: " + max + " μs");
+            System.out.println("- Best time: " + min + " μs");
+
         } catch (SQLException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
+            System.err.println("Benchmarking on SELECT statements failed.");
+            throw e;
         } finally {
-            try {
-                conn.setAutoCommit(true);
-            } catch (SQLException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
+            conn.setAutoCommit(true);    
         }
-        
     }
 
-    
+    private void executesSelectBenchmarks(int noSelectStatements) throws SQLException {
+        float avg = 0, max = -1, min = -1; 
+        int statementsMade = 0, maxID = 0;
+        Random rng = new Random();
+        
+        // Getting max ID value inserted.
+        try (Statement stmt = conn.createStatement()) {
+            ResultSet rs = stmt.executeQuery("SELECT MAX(ID) FROM Student");
+            rs.next();                
+            maxID = rs.getInt(1);
+            rs.close();
+        } catch (SQLException e) {
+            System.err.println("Unable to fetch MAX ID value from Student table in " +
+                                BENCHMARKS_DB_NAME + " DB during SELECT benchmarking.");
+            throw e;
+        }
+        
+        // Benchmarking.
+        try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM Student WHERE ID = ?")) {    
+            for (int i = 0; i < noSelectStatements; i++) {
+                try {
+                    final int userIndex = rng.nextInt(maxID);
+                    stmt.setInt(1, userIndex);                      
+
+                    long start = System.nanoTime();
+                    stmt.executeQuery();
+                    long end = System.nanoTime();
+                    float amount = (end - start) / 1000F;
+                    //System.out.println("Query returned successfully in " + amount + " μs.");
+                    
+                    statementsMade++;
+                    avg += amount;
+                    max = amount > max ? amount : max;
+                    min = amount < min || min < 0 ? amount : min;
+                } catch (SQLException e) {}
+            }
+
+            avg /= statementsMade;
+            System.out.println("\n# Benchmarks with " + noSelectStatements + " total SELECT statements:");
+            System.out.println("- total statements benchmarked: " + statementsMade + "/" + noSelectStatements);
+            System.out.println("- AVG time: " + avg + " μs");
+            System.out.println("- Worst time: " + max + " μs");
+            System.out.println("- Best time: " + min + " μs");
+
+        } catch (SQLException e) {
+            System.err.println("Benchmarking on SELECT statements failed.");
+            throw e;
+        }
+    }   
+
+
     /**
      * Creates a DB with the given name on the PostgreSQL server managed.
      * @param dbName: name of the database to create.
@@ -219,7 +274,7 @@ public class PostgreSQLManager {
     public void dropDB(String dbName) throws SQLException {       
         try (Connection conn = DriverManager.getConnection("jdbc:postgresql://" + dbmsUrl + "/", dbmsUser, userPw)) {            
             if (dbName.equals(connectedDB)) disconnectFromDB();            
-            
+
             try (Statement stmt = conn.createStatement()) {
                 stmt.executeUpdate("DROP DATABASE " + dbName);
                 System.out.println("\nDatabase " + dbName + " dropped.");
@@ -231,7 +286,7 @@ public class PostgreSQLManager {
             throw e;    
         }
     }
-    
+
     /**
      * Connects to the DB with the given name on the PostgreSQL server managed.
      * One connection to one single DB is managed at time (existing connections close).
@@ -242,7 +297,7 @@ public class PostgreSQLManager {
     public void connectToDB(String dbName) throws SQLException {                        
         try {
             disconnectFromDB();
-            
+
             conn = DriverManager.getConnection("jdbc:postgresql://" + dbmsUrl + "/" + dbName, dbmsUser, userPw);
             connectedDB = dbName;
         } catch (SQLException e) {
@@ -250,7 +305,7 @@ public class PostgreSQLManager {
             throw e;
         }    
     }
-    
+
     /**
      * Disconnects from current connected DB.
      * @throws SQLException: whether existing DB connection closing (on managed PostgreSQL server) fail.
@@ -267,7 +322,7 @@ public class PostgreSQLManager {
             connectedDB = null;
         }
     }
-    
+
     /**
      * Creates a table in the current connected DB.
      * @param tableDDL: Data Definition Language statement for table definition.
@@ -275,9 +330,9 @@ public class PostgreSQLManager {
      */
     public void createTable(String tableDDL) throws SQLException {
         if (conn == null) throw new SQLException("Cannot create a table without an established connection.");
-        
+
         final String tableName = tableDDL.split(" ")[2];
-        
+
         try (Statement stmt = conn.createStatement()) {
             stmt.executeUpdate(tableDDL);
             System.out.println("Table " + tableName + " created.");
