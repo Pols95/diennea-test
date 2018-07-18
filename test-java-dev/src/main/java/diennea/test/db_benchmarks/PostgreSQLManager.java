@@ -220,7 +220,7 @@ public class PostgreSQLManager {
         try (PreparedStatement stmt = conn.prepareStatement("SELECT * FROM Student WHERE ID = ?")) {    
             for (int i = 0; i < noSelectStatements; i++) {
                 try {
-                    final int userIndex = rng.nextInt(maxID);
+                    final int userIndex = rng.nextInt(maxID + 1);
                     stmt.setInt(1, userIndex);                      
 
                     long start = System.nanoTime();
